@@ -83,8 +83,8 @@ function isDateScheduleLocked() { return plan.dateSchedule?.applied === true; }
 function total(entry) {
   const contentLessons = Object.entries(entry.categories).filter(([key]) => key !== "assessment").flatMap(([, items]) => items).reduce((sum, item) => sum + integerLessons(item.lessons), 0);
   const assessment = assessmentState(entry);
-  const dictationLessons = assessment.dictation ? assessment.dictations.reduce((sum, item) => sum + integerLessons(item.lessons), 0) : 0;
-  const evaluationLessons = assessment.evaluationEnabled ? assessment.evaluations.reduce((sum, item) => sum + integerLessons(item.lessons), 0) : 0;
+  const dictationLessons = assessment.dictations.reduce((sum, item) => sum + integerLessons(item.lessons), 0);
+  const evaluationLessons = assessment.evaluations.reduce((sum, item) => sum + integerLessons(item.lessons), 0);
   return contentLessons + dictationLessons + evaluationLessons;
 }
 function dateOptions(value, max, label) { return [`<option value="">${label}</option>`, ...Array.from({length:max}, (_, i) => `<option value="${i + 1}" ${String(i + 1) === String(value) ? "selected" : ""}>${i + 1}${label}</option>`)].join(""); }
@@ -99,35 +99,59 @@ function assessmentState(entry) {
   const dictations = rawDictations.filter(item => item.frequency && item.month && item.day);
   const hasDraftDictation = previous.dictationDraft && (previous.dictationDraft.frequency || previous.dictationDraft.month || previous.dictationDraft.day || previous.dictationDraft.noteText);
   const evaluations = Array.isArray(previous.evaluations) ? previous.evaluations : previous.evaluation ? [{ type: previous.evaluationType || "L評（單元評估）", lessons: previous.evaluationLessons ?? 1, month: previous.evaluationMonth || "", day: previous.evaluationDay || "", dateTBD: !!previous.evaluationDateTBD, noteText: previous.note ? previous.noteText || "" : "" }] : [];
-  const evaluationEnabled = typeof previous.evaluationEnabled === "boolean" ? previous.evaluationEnabled : !!previous.evaluation || evaluations.length > 0;
+  const dictationEnabled = !!previous.dictation || dictations.length > 0;
+  const evaluationEnabled = (typeof previous.evaluationEnabled === "boolean" ? previous.evaluationEnabled : !!previous.evaluation) || evaluations.length > 0;
   const dictationDraft = { ...blankDictation(), ...(hasDraftDictation ? previous.dictationDraft : unfinishedDictation) };
   const evaluationDraft = { ...blankEvaluation(), ...previous.evaluationDraft };
   dictationDraft.lessons = integerLessons(dictationDraft.lessons);
   evaluationDraft.lessons = integerLessons(evaluationDraft.lessons);
-  return entry.assessment = { dictation: false, dictations: [], dictationDraft: blankDictation(), evaluationEnabled, evaluations: [], evaluationDraft: blankEvaluation(), ...previous, dictations: dictations.map(item => ({ ...blankDictation(), ...item, lessons: integerLessons(item.lessons) })), dictationDraft, evaluations: evaluations.map(item => ({ ...blankEvaluation(), ...item, lessons: integerLessons(item.lessons) })), evaluationDraft };
+  return entry.assessment = { dictation: false, dictations: [], dictationDraft: blankDictation(), evaluationEnabled: false, evaluations: [], evaluationDraft: blankEvaluation(), ...previous, dictation: dictationEnabled, dictations: dictations.map(item => ({ ...blankDictation(), ...item, lessons: integerLessons(item.lessons) })), dictationDraft, evaluationEnabled, evaluations: evaluations.map(item => ({ ...blankEvaluation(), ...item, lessons: integerLessons(item.lessons) })), evaluationDraft };
 }
 function assessmentDate(month, day) { return month && day ? `${day}/${month}` : ""; }
+function captureAssessmentDrafts(state, cell) {
+  if (!cell) return;
+  const dictationLessons = cell.querySelector(".dictation-lessons");
+  const evaluationLessons = cell.querySelector(".evaluation-lessons");
+  state.dictationDraft = {
+    ...state.dictationDraft,
+    frequency: cell.querySelector(".dictation-frequency")?.value ?? state.dictationDraft.frequency,
+    lessons: dictationLessons ? normalizeLessonInput(dictationLessons) : state.dictationDraft.lessons,
+    month: cell.querySelector(".dictation-month")?.value ?? state.dictationDraft.month,
+    day: cell.querySelector(".dictation-day")?.value ?? state.dictationDraft.day,
+    noteText: cell.querySelector(".dictation-note")?.value ?? state.dictationDraft.noteText,
+  };
+  state.evaluationDraft = {
+    ...state.evaluationDraft,
+    type: cell.querySelector(".evaluation-type")?.value ?? state.evaluationDraft.type,
+    lessons: evaluationLessons ? normalizeLessonInput(evaluationLessons) : state.evaluationDraft.lessons,
+    month: cell.querySelector(".evaluation-month")?.value ?? state.evaluationDraft.month,
+    day: cell.querySelector(".evaluation-day")?.value ?? state.evaluationDraft.day,
+    noteText: cell.querySelector(".assessment-note")?.value ?? state.evaluationDraft.noteText,
+  };
+}
 function syncAssessment(entry) {
   const state = assessmentState(entry);
-  const items = [...(state.dictation ? state.dictations : []).map(item => { const name = item.frequency.trim() ? `默書（${item.frequency.trim()}）` : "默書"; return { text: `${name}${assessmentDate(item.month, item.day) ? `\n日期：${assessmentDate(item.month, item.day)}` : ""}${item.noteText.trim() ? `\n${item.noteText.trim()}` : ""}`, lessons: integerLessons(item.lessons) }; }), ...(state.evaluationEnabled ? state.evaluations : []).map(item => { const date = item.dateTBD ? "待定" : assessmentDate(item.month, item.day); return { text: `${item.type}${date ? `\n日期：${date}` : ""}${item.noteText.trim() ? `\n${item.noteText.trim()}` : ""}`, lessons: integerLessons(item.lessons) }; })];
+  const items = [...state.dictations.map(item => { const name = item.frequency.trim() ? `默書（${item.frequency.trim()}）` : "默書"; return { text: `${name}${assessmentDate(item.month, item.day) ? `\n日期：${assessmentDate(item.month, item.day)}` : ""}${item.noteText.trim() ? `\n${item.noteText.trim()}` : ""}`, lessons: integerLessons(item.lessons) }; }), ...state.evaluations.map(item => { const date = item.dateTBD ? "待定" : assessmentDate(item.month, item.day); return { text: `${item.type}${date ? `\n日期：${date}` : ""}${item.noteText.trim() ? `\n${item.noteText.trim()}` : ""}`, lessons: integerLessons(item.lessons) }; })];
   entry.categories.assessment = items.length ? items : [{ text: "／", lessons: 0 }];
 }
 function listeningItem(item) {
   const content = item.content === undefined ? (item.text === "／" ? "" : item.text || "") : item.content;
-  return { mode: listeningMode(item.mode || ""), content, lessons: integerLessons(item.lessons ?? 1) };
+  const lifeWideLearning = !!item.lifeWideLearning;
+  return { mode: listeningMode(item.mode || ""), content, lessons: lifeWideLearning ? 0 : integerLessons(item.lessons ?? 1), lifeWideLearning };
 }
-function blankListening() { return { mode: "", content: "", lessons: 1 }; }
+function blankListening() { return { mode: "", content: "", lessons: 1, lifeWideLearning: false }; }
 function listeningState(entry) {
   const previous = entry.listening || {};
   const legacy = (entry.categories.listening || []).filter(item => item.text !== "／").map(listeningItem);
   const items = Array.isArray(previous.items) ? previous.items : legacy;
   const notApplicable = previous.notApplicable === true || (entry.categories.listening || []).some(item => item.text === "／");
   const draft = { ...blankListening(), ...previous.draft, mode: listeningMode(previous.draft?.mode || "") };
-  draft.lessons = integerLessons(draft.lessons);
-  return entry.listening = { items: items.map(item => ({ ...blankListening(), ...item, mode: listeningMode(item.mode || ""), lessons: integerLessons(item.lessons) })), draft, open: !!previous.open, notApplicable, editIndex: Number.isInteger(previous.editIndex) ? previous.editIndex : null };
+  draft.lifeWideLearning = !!draft.lifeWideLearning;
+  draft.lessons = draft.lifeWideLearning ? 0 : integerLessons(draft.lessons);
+  return entry.listening = { items: items.map(item => { const lifeWideLearning = !!item.lifeWideLearning; return { ...blankListening(), ...item, mode: listeningMode(item.mode || ""), lessons: lifeWideLearning ? 0 : integerLessons(item.lessons), lifeWideLearning }; }), draft, open: !!previous.open, notApplicable, editIndex: Number.isInteger(previous.editIndex) ? previous.editIndex : null };
 }
 function syncListening(entry, state = listeningState(entry)) {
-  entry.categories.listening = state.notApplicable ? [{ text: "／", lessons: 0 }] : state.items.map(item => ({ text: `${listeningMode(item.mode)}：${item.content.trim()}`, lessons: integerLessons(item.lessons), mode: listeningMode(item.mode), content: item.content }));
+  entry.categories.listening = state.notApplicable ? [{ text: "／", lessons: 0 }] : state.items.map(item => ({ text: `${listeningMode(item.mode)}：${item.content.trim()}`, lessons: item.lifeWideLearning ? 0 : integerLessons(item.lessons), mode: listeningMode(item.mode), content: item.content, lifeWideLearning: !!item.lifeWideLearning }));
 }
 function otherItem(item) {
   const rawContent = item.content === undefined ? (item.text === "／" ? "" : item.text || "") : item.content;
@@ -159,28 +183,15 @@ function valueState(entry) {
 }
 function syncValues(entry) { const state = valueState(entry); entry.categories.values = state.notApplicable ? [{ text: "／", lessons: 0 }] : state.items.map(item => ({ text: item.text, lessons: 0, priority: !!item.priority })); }
 function currentFilename() { const { year, semester, grade } = plan.meta; return year && semester && grade ? `${year}${semester}${grade}教學進度表` : "請先填寫基本資料"; }
-function allIssues() {
-  const errors = []; const { year, semester, grade } = plan.meta;
-  if (!year || !semester || !grade) errors.push("請先填寫學年、學期及年級。");
-  plan.entries.filter(e => e.type === "week").forEach(entry => {
-    syncAssessment(entry);
-    if (!entry.date.trim()) errors.push(`第${entry.week}循環週：請填寫日期。`);
-    CATEGORIES.forEach(([key, label]) => { if (key !== "listening" && !entry.categories[key].some(item => item.text.trim())) errors.push(`第${entry.week}循環週：${label}未填寫。`); });
-    const assessment = assessmentState(entry);
-    if (assessment.dictation && !assessment.dictations.length) errors.push(`第${entry.week}循環週：請填寫默書資料後按「＋」加入。`);
-    assessment.dictations.forEach((item, index) => { if (!item.frequency.trim()) errors.push(`第${entry.week}循環週：請填寫第${index + 1}項默書頻次。`); if (!item.month || !item.day) errors.push(`第${entry.week}循環週：請填寫第${index + 1}項默書日期。`); });
-    if (assessment.evaluationEnabled && !assessment.evaluations.length) errors.push(`第${entry.week}循環週：請填寫評估資料後按「＋」加入。`);
-    if (assessment.evaluationEnabled) assessment.evaluations.forEach((item, index) => { if (!item.dateTBD && (!item.month || !item.day)) errors.push(`第${entry.week}循環週：請填寫第${index + 1}項評估日期或選擇待定。`); });
-    if (total(entry) !== 8) errors.push(`第${entry.week}循環週：目前合計${total(entry)}節，應為8節。`);
-  });
-  return errors;
-}
+function incompleteWeeks() { return plan.entries.filter(entry => entry.type === "week" && total(entry) !== 8); }
+function incompleteWeekNames(entries = incompleteWeeks()) { return entries.map(entry => `第${entry.week}循環週`).join("、"); }
 function refreshValidation() {
   const issues = document.querySelector("#issues");
-  const incompleteWeeks = plan.entries.filter(entry => entry.type === "week" && total(entry) !== 8);
-  const weekNames = incompleteWeeks.map(entry => `第${entry.week}循環週（${total(entry)}/8節）`).join("、");
-  issues.innerHTML = incompleteWeeks.length ? `<div class="issue">未合計 8 節：${escapeHtml(weekNames)}</div>` : '<div class="ok">所有循環週均已合計 8 節，可以下載。</div>';
-  document.querySelector("#summary").textContent = incompleteWeeks.length ? `尚有 ${incompleteWeeks.length} 個循環週未合計 8 節` : "已通過 8 節檢核";
+  const entries = incompleteWeeks();
+  issues.innerHTML = entries.length
+    ? `<div class="issue">未完成 8 節：${escapeHtml(incompleteWeekNames(entries))}</div>`
+    : '<div class="ok">所有循環週均已合計 8 節，可以下載。</div>';
+  document.querySelector("#summary").textContent = entries.length ? `尚有 ${entries.length} 個循環週未完成 8 節` : "已通過 8 節檢核";
   document.querySelectorAll("#download-docx").forEach(button => button.disabled = false);
   document.querySelectorAll(".week-row").forEach(row => {
     const entry = plan.entries[Number(row.dataset.entryIndex)];
@@ -348,11 +359,12 @@ function renderListeningCell(entry, label) {
     ? `<div class="saved-assessment not-applicable"><span>不適用</span><button type="button" data-listening-action="restore" title="改回填寫內容">✖</button></div>`
     : state.items.map((item, index) => `<div class="saved-assessment listening-saved saved-listening draggable-listening has-item-actions" draggable="true" data-listening-index="${index}"><span class="saved-item-text">${escapeHtml(item.mode)}：${escapeHtml(item.content)}｜${item.lessons}節</span><div class="saved-item-actions"><button type="button" class="edit-saved" data-listening-action="edit" data-listening-index="${index}" title="編輯此項">✎</button><button type="button" class="copy-saved" data-listening-action="copy" data-listening-index="${index}" title="複製此項">▼</button><button type="button" data-listening-action="remove" data-listening-index="${index}" title="移除此項">✖</button></div></div>`).join("");
   const draft = state.draft;
-  cell.innerHTML = `<div class="saved-assessment-list">${saved}</div>${state.open ? `<div class="listening-form"><select class="listening-mode" aria-label="${label}類型"><option value="">選擇類型</option>${LISTENING_OPTIONS.map(option => `<option value="${option}" ${draft.mode === option ? "selected" : ""}>${option}</option>`).join("")}</select><textarea class="listening-content" aria-label="${label}內容" placeholder="填寫內容">${escapeHtml(draft.content)}</textarea><div class="lesson-line"><input class="listening-lessons" aria-label="${label}節數" type="number" min="0" step="1" value="${draft.lessons}" /><span>節</span></div><button type="button" class="add-assessment" data-listening-action="add">${Number.isInteger(state.editIndex) ? "儲存修改" : "＋ 加入"}</button></div>` : ""}<div class="cell-actions"><button class="add" data-listening-action="open" title="新增聆聽／視訊／說話內容">＋</button><button class="slash" data-listening-action="slash" title="不適用（0節）">／</button></div>`;
+  cell.innerHTML = `<div class="saved-assessment-list">${saved}</div>${state.open ? `<div class="listening-form"><select class="listening-mode" aria-label="${label}類型"><option value="">選擇類型</option>${LISTENING_OPTIONS.map(option => `<option value="${option}" ${draft.mode === option ? "selected" : ""}>${option}</option>`).join("")}</select><textarea class="listening-content" aria-label="${label}內容" placeholder="填寫內容">${escapeHtml(draft.content)}</textarea><div class="lesson-line"><input class="listening-lessons" aria-label="${label}節數" type="number" min="0" step="1" value="${draft.lifeWideLearning ? 0 : draft.lessons}" ${draft.lifeWideLearning ? "disabled" : ""} /><span>節</span><label class="life-wide-learning"><input type="checkbox" class="listening-life-wide" ${draft.lifeWideLearning ? "checked" : ""} />全方位學習時段</label></div><button type="button" class="add-assessment" data-listening-action="add">${Number.isInteger(state.editIndex) ? "儲存修改" : "＋ 加入"}</button></div>` : ""}<div class="cell-actions"><button class="add" data-listening-action="open" title="新增聆聽／視訊／說話內容">＋</button><button class="slash" data-listening-action="slash" title="不適用（0節）">／</button></div>`;
   const update = () => { syncListening(entry, state); save(); refreshValidation(); };
   cell.querySelector(".listening-mode")?.addEventListener("change", event => { state.draft.mode = event.target.value; update(); });
   cell.querySelector(".listening-content")?.addEventListener("input", event => { state.draft.content = event.target.value; update(); });
   cell.querySelector(".listening-lessons")?.addEventListener("input", event => { state.draft.lessons = normalizeLessonInput(event.target); update(); });
+  cell.querySelector(".listening-life-wide")?.addEventListener("change", event => { state.draft.lifeWideLearning = event.target.checked; state.draft.lessons = event.target.checked ? 0 : Math.max(1, integerLessons(state.draft.lessons)); syncListening(entry, state); render(); });
   cell.querySelectorAll(".draggable-listening").forEach(item => {
     item.ondragstart = () => { listeningDragState = { entry, index: Number(item.dataset.listeningIndex) }; item.classList.add("dragging"); };
     item.ondragend = () => { listeningDragState = null; item.classList.remove("dragging"); };
@@ -370,7 +382,8 @@ function renderListeningCell(entry, label) {
     if (action === "edit") { const index = Number(control.dataset.listeningIndex); const item = state.items[index]; if (item) { state.editIndex = index; state.draft = { ...blankListening(), ...item }; state.open = true; state.notApplicable = false; render(); } return; }
     if (action === "remove") { state.items.splice(Number(control.dataset.listeningIndex), 1); render(); return; }
     if (action === "add") {
-      const item = { mode: cell.querySelector(".listening-mode").value, content: cell.querySelector(".listening-content").value, lessons: normalizeLessonInput(cell.querySelector(".listening-lessons")) };
+      const lifeWideLearning = !!cell.querySelector(".listening-life-wide")?.checked;
+      const item = { mode: cell.querySelector(".listening-mode").value, content: cell.querySelector(".listening-content").value, lessons: lifeWideLearning ? 0 : normalizeLessonInput(cell.querySelector(".listening-lessons")), lifeWideLearning };
       if (!item.mode || !item.content.trim()) { alert("請先選擇類型並填寫內容。"); return; }
       if (Number.isInteger(state.editIndex)) state.items[state.editIndex] = item; else state.items.push(item); state.editIndex = null; state.draft = blankListening(); state.open = false; state.notApplicable = false; render();
     }
@@ -491,7 +504,7 @@ function renderNoteRow(entry, index) {
 function escapeHtml(value) { return String(value).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]); }
 function escapeAttr(value) { return escapeHtml(value); }
 function chooseLocalTemplate() { return new Promise(resolve => { const input = document.querySelector("#template-file"); input.value = ""; input.onchange = () => resolve(input.files?.[0] || null); input.click(); }); }
-async function download() { const errors = allIssues(); if (errors.length && !confirm(`表格尚有 ${errors.length} 項未完成資料。是否仍要下載未完成表格？`)) return; const button = document.querySelector("#download-docx"); button.disabled = true; button.textContent = "正在建立檔案…"; try { const localTemplate = location.protocol === "file:" ? await chooseLocalTemplate() : null; if (location.protocol === "file:" && !localTemplate) return; const { exportDocx } = await import("./docx-export.js?v=browser-c8"); await exportDocx(plan, `${currentFilename()}.docx`, localTemplate); } catch (error) { alert(error?.message || "瀏覽器未能建立 Word 檔案。"); } finally { button.disabled = false; button.textContent = "下載檔案"; } }
+async function download() { const entries = incompleteWeeks(); if (entries.length && !confirm(`尚有 ${entries.length} 個循環週未完成 8 節：\n\n${incompleteWeekNames(entries)}\n\n是否仍要下載未完成表格？`)) return; const button = document.querySelector("#download-docx"); button.disabled = true; button.textContent = "正在建立檔案…"; try { const localTemplate = location.protocol === "file:" ? await chooseLocalTemplate() : null; if (location.protocol === "file:" && !localTemplate) return; const { exportDocx } = await import("./docx-export.js?v=browser-c11"); await exportDocx(plan, `${currentFilename()}.docx`, localTemplate); } catch (error) { alert(error?.message || "瀏覽器未能建立 Word 檔案。"); } finally { button.disabled = false; button.textContent = "下載檔案"; } }
 document.addEventListener("beforeinput", event => {
   if (event.target.matches?.(LESSON_INPUT_SELECTOR) && event.data && !/^\d+$/.test(event.data)) event.preventDefault();
 });
@@ -529,6 +542,7 @@ document.querySelector("#entries").addEventListener("click", event => {
   if (!entry) return;
   const state = assessmentState(entry);
   const cell = control.closest(".assessment-cell");
+  captureAssessmentDrafts(state, cell);
   if (control.dataset.assessmentAction === "dictation") { state.dictation = !state.dictation; state.notApplicable = false; }
   if (control.dataset.assessmentAction === "evaluation") state.evaluationEnabled = !state.evaluationEnabled;
   if (control.dataset.assessmentAction === "add-dictation") {

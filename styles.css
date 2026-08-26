@@ -66,3 +66,7 @@ label { display: grid; gap: 6px; font-size: 15px; font-weight: 700; } input, sel
 .recommended-title { display: inline-block; max-width: 100%; padding: 0 3px; border: 1px solid #64756f; border-radius: 1px; line-height: 1.35; vertical-align: baseline; }
 .toggle-recommended { min-width: 18px; min-height: 18px; margin: 0 3px 0 0; padding: 0 2px; border-radius: 3px; background: #e2e6e5; color: #4d5b56; font-size: 13px; line-height: 1; vertical-align: 1px; }
 .toggle-recommended.active { background: #dcebe5; color: #075e50; }
+.listening-form .lesson-line { flex-wrap: wrap; }
+.life-wide-learning { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; font-weight: 400; white-space: nowrap; }
+.life-wide-learning input { width: 13px; height: 13px; margin: 0; }
+.listening-lessons:disabled { background: #edf0ef; color: #52615c; }

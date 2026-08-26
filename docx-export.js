@@ -117,6 +117,7 @@ function cellText(items, { showLessons = true, category = "" } = {}) {
     const marker = item.priority ? "*" : "";
     if (value === "／") output.push("／");
     else if (!showLessons) output.push(`${value}${marker}`);
+    else if (category === "listening" && item.lifeWideLearning) output.push(`${value}${marker}\n（#節）`);
     else if (category === "other" && (OTHER_REMINDER_MODES.has(item.mode) || Array.from(OTHER_REMINDER_MODES).some(mode => value.startsWith(`${mode}：`)))) output.push(`${value}${marker}`);
     else if (item.combined || item.combinedWith) output.push(`${value}${marker}\n（結合閱讀／寫作進行）`);
     else output.push(`${value}${marker}\n（${lessons}節）`);
@@ -126,8 +127,8 @@ function cellText(items, { showLessons = true, category = "" } = {}) {
 
 function assessmentText(entry) {
   const assessment = entry.assessment || {};
-  const dictations = assessment.dictation ? assessment.dictations || [] : [];
-  const evaluations = assessment.evaluationEnabled ? assessment.evaluations || [] : [];
+  const dictations = assessment.dictations || [];
+  const evaluations = assessment.evaluations || [];
   const records = [
     ...dictations.map(item => `默書（${item.frequency || "未填頻次"}）\n日期：${item.month && item.day ? `${item.day}/${item.month}` : "未填日期"}${item.noteText?.trim() ? `\n${item.noteText.trim()}` : ""}\n（${integerLessons(item.lessons)}節）`),
     ...evaluations.map(item => `${item.type || "評估"}\n日期：${item.dateTBD ? "待定" : item.month && item.day ? `${item.day}/${item.month}` : "未填日期"}${item.noteText?.trim() ? `\n${item.noteText.trim()}` : ""}\n（${integerLessons(item.lessons)}節）`),
@@ -147,7 +148,7 @@ function writeWeek(document, row, entry, number) {
   const cells = rowCells(row);
   if (isEmptyWeek(entry)) { cells.forEach(cell => setCell(document, cell, "")); return; }
   const categories = entry.categories || {};
-  const output = [String(number), entry.date || "", cellText(categories.reading), cellText(categories.writing), cellText(categories.listening), cellText(categories.literature), assessmentText(entry), cellText(categories.other, { category: "other" }), cellText(categories.values, { showLessons: false })];
+  const output = [String(number), entry.date || "", cellText(categories.reading), cellText(categories.writing), cellText(categories.listening, { category: "listening" }), cellText(categories.literature), assessmentText(entry), cellText(categories.other, { category: "other" }), cellText(categories.values, { showLessons: false })];
   cells.forEach((cell, index) => {
     if (index === 2) setRecommendedContentCell(document, cell, categories.reading);
     else if (index === 5) setRecommendedContentCell(document, cell, categories.literature);
@@ -181,9 +182,20 @@ function replaceRepeatedColumnHeader(document) {
   });
 }
 
+function ensureLifeWideLearningLegend(document) {
+  Array.from(document.getElementsByTagNameNS(W_NS, "p")).forEach(paragraph => {
+    const value = text(paragraph);
+    if (!value.includes("本年度學校關注項目") || !value.includes("課程建議篇章") || value.includes("全方位學習時段進行")) return;
+    const sourceRun = direct(paragraph, "r").at(-1);
+    const runProperties = sourceRun && cloneChild(sourceRun, "rPr");
+    appendRun(document, paragraph, runProperties, "   # 全方位學習時段進行");
+  });
+}
+
 function fillTemplate(document, header, plan) {
   removeOldTemplateNote(document);
   replaceRepeatedColumnHeader(document);
+  ensureLifeWideLearningLegend(document);
   const body = document.getElementsByTagNameNS(W_NS, "body")[0];
   const firstParagraph = direct(body, "p")[0];
   if (firstParagraph) replaceParagraph(document, firstParagraph, `年級：${plan.meta.grade || ""}\t\t\t\t教師：${plan.meta.teacher || ""}`);
