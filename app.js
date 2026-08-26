@@ -177,11 +177,13 @@ function syncOther(entry, state = otherState(entry)) {
 function valueState(entry) {
   if (!entry.values) {
     const existing = entry.categories.values || [];
-    entry.values = { notApplicable: existing.some(item => item.text === "／"), items: existing.filter(item => item.text && item.text !== "／").map(item => ({ text: item.text, priority: !!item.priority })) };
+    entry.values = { items: existing.filter(item => item.text && item.text !== "／").map(item => ({ text: item.text, priority: !!item.priority })) };
   }
+  entry.values.items = Array.isArray(entry.values.items) ? entry.values.items.filter(item => item.text && item.text !== "／") : [];
+  entry.values.notApplicable = false;
   return entry.values;
 }
-function syncValues(entry) { const state = valueState(entry); entry.categories.values = state.notApplicable ? [{ text: "／", lessons: 0 }] : state.items.map(item => ({ text: item.text, lessons: 0, priority: !!item.priority })); }
+function syncValues(entry) { const state = valueState(entry); entry.categories.values = state.items.map(item => ({ text: item.text, lessons: 0, priority: !!item.priority })); }
 function currentFilename() { const { year, semester, grade } = plan.meta; return year && semester && grade ? `${year}${semester}${grade}教學進度表` : "請先填寫基本資料"; }
 function incompleteWeeks() { return plan.entries.filter(entry => entry.type === "week" && total(entry) !== 8); }
 function incompleteWeekNames(entries = incompleteWeeks()) { return entries.map(entry => `第${entry.week}循環週`).join("、"); }
@@ -462,13 +464,15 @@ function renderValuesCell(entry) {
   const cell = document.createElement("td"); cell.className = "content-cell values-cell category-values";
   const remainingValues = VALUE_OPTIONS.filter(value => !state.items.some(item => item.text === value));
   const remainingSecurity = SECURITY_OPTIONS.filter(value => !state.items.some(item => item.text === value));
-  cell.innerHTML = `<div class="selection-row"><select class="value-select" aria-label="選擇價值觀"><option value="">價值觀</option>${remainingValues.map(value => `<option>${value}</option>`).join("")}</select><button class="add-value">＋</button></div><div class="selection-row"><select class="security-select" aria-label="選擇國家安全領域"><option value="">國家安全領域</option>${remainingSecurity.map(value => `<option>${value}</option>`).join("")}</select><button class="add-security">＋</button></div><div class="value-chips"></div><div class="cell-actions"><button class="slash" title="不適用（0節）">／</button></div>`;
-  const select = cell.querySelector(".value-select"), securitySelect = cell.querySelector(".security-select"), add = cell.querySelector(".add-value"), addSecurity = cell.querySelector(".add-security"), chips = cell.querySelector(".value-chips");
-  const addSelected = selected => { if (!selected.value) return; state.items.push({ text: selected.value, priority: false }); state.notApplicable = false; syncValues(entry); render(); };
+  cell.innerHTML = `<div class="selection-row"><select class="value-select" aria-label="選擇價值觀"><option value="">價值觀</option>${remainingValues.map(value => `<option>${value}</option>`).join("")}</select><button class="add-value" title="加入價值觀">＋</button></div><div class="selection-row"><select class="security-select" aria-label="選擇國家安全領域"><option value="">國家安全領域</option>${remainingSecurity.map(value => `<option>${value}</option>`).join("")}</select><button class="add-security" title="加入國家安全領域">＋</button></div><div class="selection-row"><input class="custom-value" aria-label="填寫其他價值觀或教育內容" placeholder="其他（自行填寫）" /><button class="add-custom-value" title="加入其他內容">＋</button></div><div class="value-chips"></div>`;
+  const select = cell.querySelector(".value-select"), securitySelect = cell.querySelector(".security-select"), customInput = cell.querySelector(".custom-value"), add = cell.querySelector(".add-value"), addSecurity = cell.querySelector(".add-security"), addCustom = cell.querySelector(".add-custom-value"), chips = cell.querySelector(".value-chips");
+  const addText = value => { const itemText = String(value || "").trim(); if (!itemText || state.items.some(item => item.text === itemText)) return; state.items.push({ text: itemText, priority: false }); syncValues(entry); render(); };
+  const addSelected = selected => addText(selected.value);
   add.onclick = () => addSelected(select);
   addSecurity.onclick = () => addSelected(securitySelect);
+  addCustom.onclick = () => addText(customInput.value);
+  customInput.onkeydown = event => { if (event.key === "Enter") { event.preventDefault(); addText(customInput.value); } };
   state.items.forEach((item, index) => { const chip = document.createElement("div"); chip.className = "value-chip saved-values"; chip.innerHTML = `<span>${escapeHtml(item.text)}</span><button class="priority ${item.priority ? "active" : ""}" title="本年度學校關注項目">${item.priority ? "★" : "☆"}</button><button class="remove-value" title="移除此項">×</button>`; chip.querySelector(".priority").onclick = () => { item.priority = !item.priority; syncValues(entry); render(); }; chip.querySelector(".remove-value").onclick = () => { state.items.splice(index, 1); syncValues(entry); render(); }; chips.append(chip); });
-  cell.querySelector(".slash").onclick = () => { state.items = []; state.notApplicable = true; syncValues(entry); render(); };
   return cell;
 }
 function renderItem(entry, key, item, itemIndex) {
